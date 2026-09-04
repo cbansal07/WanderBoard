@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
 import type { MapMarker } from '@/components/MapView';
 import { DiscoveryList } from '@/features/discovery/components/DiscoveryList';
 import { AddToBucketModal } from '@/features/discovery/components/AddToBucketModal';
