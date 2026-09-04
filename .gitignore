@@ -5,6 +5,7 @@ node_modules/
 dist/
 
 # Environment — NEVER commit real Firebase keys
+.env
 .env.local
 .env.*.local
 

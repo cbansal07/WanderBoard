@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { Component, useEffect, useMemo, useState, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useNavigate, useParams, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { ROUTES } from '@/config/routes';
@@ -6,7 +6,8 @@ import type { Trip, TripDestinationCity, TripMember } from '@/types';
 import { appendTripDestinationCity, getTrip, getTripMembers, setSelectedDestinationCity } from './tripService';
 import { useTripStore } from './useTripStore';
 import { useWeatherStore } from '@/features/weather';
-import { getCoordinatesFromCity, type Coordinates } from '@/features/weather/geocodingService';
+import { getCoordinatesFromCity } from '@/features/weather/geocodingService';
+import { TripGeoContext, type GeoState } from './TripGeoContext';
 import { Avatar } from '@/components/Avatar';
 import { MapView } from '@/components/MapView';
 import { TripMapProvider, useTripMap } from './TripMapContext';
@@ -16,26 +17,69 @@ import { db } from '@/config/firebase';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import type { TimelineEvent } from '@/types';
 
-// ─── Geocoding context (destination lat/lon for weather + initial map centre) ──
+// GeoState, TripGeoContext, and useTripGeo are now in ./TripGeoContext.tsx
+// (separated so Vite Fast Refresh / HMR works correctly)
+export { useTripGeo } from './TripGeoContext';
 
-export type GeoState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; coords: Coordinates };
+// ─── Map Error Boundary ───────────────────────────────────────────────────────
+// Isolates map crashes so panels keep working even if Leaflet blows up.
 
-interface TripGeoContextValue { geo: GeoState }
-const TripGeoContext = createContext<TripGeoContextValue>({ geo: { status: 'idle' } });
-
-export function useTripGeo(): TripGeoContextValue {
-  return useContext(TripGeoContext);
+class MapErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; message: string }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error.message };
+  }
+  componentDidCatch(error: Error) {
+    console.error('[MapErrorBoundary]', error);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          className="w-full h-full flex flex-col items-center justify-center gap-3 text-center px-6"
+          style={{
+            background: 'radial-gradient(1200px 700px at 30% 30%, #DDEAF3, transparent 60%), radial-gradient(900px 500px at 70% 80%, #FAEFD9, transparent 60%), #EEE4CC',
+          }}
+        >
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center border-2"
+            style={{ background: '#fff', borderColor: 'var(--wb-line)', boxShadow: 'var(--wb-shadow-md)' }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--wb-ink-soft)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+            </svg>
+          </div>
+          <div>
+            <p className="text-sm font-bold mb-1" style={{ color: 'var(--wb-ink)' }}>Map unavailable</p>
+            <p className="text-xs" style={{ color: 'var(--wb-ink-soft)', maxWidth: 260 }}>
+              {this.state.message || 'The map could not be loaded. All planning features still work normally.'}
+            </p>
+          </div>
+          <button
+            className="wb-btn wb-btn-ghost wb-btn-sm mt-1"
+            onClick={() => this.setState({ hasError: false, message: '' })}
+          >
+            Retry map
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function normalizeCityName(name: string): string {
   return name.replace(/\s+/g, ' ').trim();
 }
 
-function parseDestinationCities(destination: string): string[] {
+function parseDestinationCities(destination?: string): string[] {
+  if (!destination) return [];
   return destination
     .split(';')
     .map(normalizeCityName)
@@ -189,7 +233,12 @@ export function TripWorkspacePage() {
     setGeo({ status: 'loading' });
     const primaryCity = activeTrip.destination.split(';')[0].trim();
     getCoordinatesFromCity(primaryCity, { placeId: activeTrip.destinationPlaceId }).then((result) => {
-      setGeo(result.ok ? { status: 'ready', coords: result.data } : { status: 'error', message: result.error });
+      if (result.ok) {
+        setGeo({ status: 'ready', coords: result.data });
+      } else {
+        console.warn('[TripWorkspace] Geocoding failed:', result.error);
+        setGeo({ status: 'error', message: result.error });
+      }
     });
   }, [
     activeTrip,
@@ -356,11 +405,15 @@ function WorkspaceShell({
     highlighted: m.id === selectedMarkerId || m.id === hoveredMarkerId,
   }));
 
-  function handleMapLoad(map: google.maps.Map) {
+  const handleMapLoad = useCallback((map: any) => {
     mapRef.current = map;
     setMapLoaded(true);
     setMapReadyTick((t) => t + 1);
-  }
+  }, [mapRef, setMapLoaded]);
+
+  const handleMapUnmount = useCallback(() => {
+    mapRef.current = null;
+  }, [mapRef]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -369,7 +422,7 @@ function WorkspaceShell({
     const handleIdle = () => {
       setIdleTick((t) => t + 1);
 
-      if (!homeCenter || !window.google?.maps?.geometry?.spherical) {
+      if (!homeCenter) {
         setIsOffHomeCenter(false);
         return;
       }
@@ -380,16 +433,15 @@ function WorkspaceShell({
         return;
       }
 
-      const homeLatLng = new window.google.maps.LatLng(homeCenter.lat, homeCenter.lng);
-      const distance = window.google.maps.geometry.spherical.computeDistanceBetween(center, homeLatLng);
+      const distance = map.distance(center, [homeCenter.lat, homeCenter.lng]);
       setIsOffHomeCenter(distance > 250);
     };
 
-    const listener = map.addListener('idle', handleIdle);
+    map.on('moveend', handleIdle);
     handleIdle();
 
     return () => {
-      listener.remove();
+      map.off('moveend', handleIdle);
     };
   }, [mapReadyTick, homeCenter, mapRef, setIdleTick]);
 
@@ -635,19 +687,21 @@ function WorkspaceShell({
             background: 'radial-gradient(1200px 700px at 30% 30%, #DDEAF3, transparent 60%), radial-gradient(900px 500px at 70% 80%, #FAEFD9, transparent 60%), #EEE4CC',
           }}
         >
-          <MapView
-            center={homeCenter ?? undefined}
-            zoom={hasDiscoveryPanel ? 13 : 11}
-            recenterTrigger={recenterTrigger}
-            markers={displayMarkers}
-            selectedMarkerId={selectedMarkerId ?? undefined}
-            onMarkerClick={handleMarkerClick}
-            onInfoWindowClose={() => setSelectedMarkerId(null)}
-            renderInfoWindow={renderInfoWindow ?? undefined}
-            onLoad={handleMapLoad}
-            onUnmount={() => { mapRef.current = null; }}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-          />
+          <MapErrorBoundary>
+            <MapView
+              center={homeCenter ?? undefined}
+              zoom={hasDiscoveryPanel ? 13 : 11}
+              recenterTrigger={recenterTrigger}
+              markers={displayMarkers}
+              selectedMarkerId={selectedMarkerId ?? undefined}
+              onMarkerClick={handleMarkerClick}
+              onInfoWindowClose={() => setSelectedMarkerId(null)}
+              renderInfoWindow={renderInfoWindow ?? undefined}
+              onLoad={handleMapLoad}
+              onUnmount={handleMapUnmount}
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+            />
+          </MapErrorBoundary>
 
           {/* Map chrome chips */}
           <div className="absolute left-4 top-4 flex flex-col gap-2 z-10">
@@ -870,6 +924,7 @@ function MemberRow({ member, isCurrentUser }: { member: TripMember; isCurrentUse
   );
 }
 
-function getDaysToGo(startDate: string): number {
+function getDaysToGo(startDate?: string): number {
+  if (!startDate) return 0;
   return Math.max(0, Math.ceil((new Date(startDate).getTime() - Date.now()) / 86400000));
 }

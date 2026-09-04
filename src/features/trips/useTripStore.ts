@@ -14,6 +14,7 @@ interface TripState {
 
   setTrips:      (trips: Trip[]) => void;
   addTrip:       (trip: Trip) => void;
+  removeTrip:    (tripId: string) => void;
   setActiveTrip: (trip: Trip | null) => void;
   setMembers:    (members: TripMember[]) => void;
   patchActiveTrip: (patch: Partial<Trip>) => void;
@@ -41,6 +42,7 @@ export const useTripStore = create<TripState>((set) => ({
 
   setTrips:      (trips)   => set({ trips, tripsLoading: false, tripsError: null }),
   addTrip:       (trip)    => set((s) => ({ trips: [...s.trips, trip] })),
+  removeTrip:    (tripId)  => set((s) => ({ trips: s.trips.filter(t => t.id !== tripId) })),
   setActiveTrip: (trip)    => set({ activeTrip: trip, members: [] }),
   setMembers:    (members) => set({ members }),
   patchActiveTrip: (patch) => set((s) => {

@@ -19,12 +19,7 @@ export interface GeocodingHints {
 // Keyed by normalised destination string. Lives for the browser session —
 // avoids re-geocoding the same city when navigating between trips.
 
-const cache = new Map<string, Coordinates>();
-const IntlAny = Intl as any;
-const regionDisplayNames: { of: (code: string) => string | undefined } | null =
-  typeof IntlAny !== 'undefined' && typeof IntlAny.DisplayNames === 'function'
-    ? new IntlAny.DisplayNames(['en'], { type: 'region' })
-    : null;
+const cache = new Map<string, Promise<Coordinates>>();
 
 function cacheKey(destination: string, hints?: GeocodingHints): string {
   return [
@@ -60,33 +55,9 @@ function normalizeCountryCode(value: string | undefined): string {
   return raw;
 }
 
-function getCountryNameFromCode(value: string): string {
-  if (!regionDisplayNames) return '';
-  const code = normalizeAlpha(value);
-  if (code.length !== 2) return '';
 
-  try {
-    const name = regionDisplayNames.of(code);
-    return normalizeAlpha(name);
-  } catch {
-    return '';
-  }
-}
 
-function countryMatchesExpected(expectedCountry: string, candidateCountry: string): boolean {
-  if (!expectedCountry) return true;
 
-  const expected = normalizeCountryCode(expectedCountry);
-  const candidate = normalizeCountryCode(candidateCountry);
-
-  if (!expected || !candidate) return false;
-  if (expected === candidate) return true;
-
-  const expectedName = expected.length === 2 ? getCountryNameFromCode(expected) : expected;
-  const candidateName = candidate.length === 2 ? getCountryNameFromCode(candidate) : candidate;
-
-  return Boolean(expectedName && candidateName && expectedName === candidateName);
-}
 
 function normalizeState(value: string | undefined): string {
   const raw = normalizeAlpha(value);
@@ -117,101 +88,13 @@ function parseDestination(destination: string): GeocodingHints {
   };
 }
 
-interface OpenWeatherGeocodeResult {
-  lat: number;
-  lon: number;
-  name: string;
-  state?: string;
-  country: string;
-}
 
-interface GooglePlaceGeocodeResponse {
-  status: string;
-  results?: Array<{
-    formatted_address: string;
-    geometry?: { location?: { lat: number; lng: number } };
-  }>;
-}
-
-function pickBestCandidate(
-  candidates: OpenWeatherGeocodeResult[],
-  expectedCountry?: string,
-  expectedState?: string,
-): Result<OpenWeatherGeocodeResult> {
-  if (candidates.length === 0) {
-    return err('No matching location candidates found.');
-  }
-
-  const country = normalizeCountryCode(expectedCountry);
-  const state = normalizeState(expectedState);
-
-  let next = candidates;
-  if (country) {
-    const countryMatches = next.filter((candidate) => countryMatchesExpected(country, candidate.country));
-    if (countryMatches.length === 0) {
-      return err('Resolved location does not match the selected country.');
-    }
-    next = countryMatches;
-  }
-
-  if (state) {
-    const stateMatches = next.filter((candidate) => normalizeState(candidate.state) === state);
-    if (stateMatches.length > 0) {
-      next = stateMatches;
-    } else {
-      const hasStateData = next.some((candidate) => Boolean(candidate.state));
-      if (hasStateData) {
-        return err('Resolved location does not match the selected state/region.');
-      }
-    }
-  }
-
-  return ok(next[0]);
-}
-
-async function geocodeFromPlaceId(placeId: string): Promise<Result<Coordinates>> {
-  const mapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
-  if (!mapsKey) {
-    return err('Missing VITE_GOOGLE_MAPS_API_KEY for placeId geocoding fallback.');
-  }
-
-  try {
-    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-    url.searchParams.set('place_id', placeId);
-    url.searchParams.set('key', mapsKey);
-
-    const res = await fetch(url.toString());
-    if (!res.ok) {
-      return err(`Google Geocoding API error: HTTP ${res.status}`);
-    }
-
-    const json = await res.json() as GooglePlaceGeocodeResponse;
-    if (json.status !== 'OK' || !json.results?.length) {
-      return err(`Google Geocoding API returned status: ${json.status}`);
-    }
-
-    const first = json.results[0];
-    const location = first.geometry?.location;
-    if (!location) {
-      return err('Google Geocoding API response did not include coordinates.');
-    }
-
-    return ok({
-      lat: location.lat,
-      lon: location.lng,
-      resolvedName: first.formatted_address,
-    });
-  } catch (e: any) {
-    console.error('[geocodeFromPlaceId]', e);
-    return err('Failed to resolve placeId location.');
-  }
-}
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
  * Resolve a destination string (e.g. "Goa", "Reykjavik, Iceland") to
- * geographic coordinates using the OpenWeatherMap Geocoding API.
+ * geographic coordinates using the Nominatim Geocoding API.
  *
  * Returns a cached result if the same destination was already resolved
  * during this session.
@@ -220,14 +103,6 @@ export async function getCoordinatesFromCity(
   destination: string,
   hints?: GeocodingHints,
 ): Promise<Result<Coordinates>> {
-  const apiKey = import.meta.env.VITE_WEATHER_API_KEY as string | undefined;
-
-  if (!apiKey) {
-    return err(
-      'Missing VITE_WEATHER_API_KEY. Weather and geocoding are unavailable.'
-    );
-  }
-
   const parsed = parseDestination(destination);
   const expectedCountry = normalizeCountryCode(hints?.expectedCountry ?? parsed.expectedCountry);
   const expectedState = normalizeState(hints?.expectedState ?? parsed.expectedState);
@@ -240,63 +115,75 @@ export async function getCoordinatesFromCity(
 
   const key = cacheKey(destination, mergedHints);
   if (cache.has(key)) {
-    return ok(cache.get(key)!);
+    try {
+      const coords = await cache.get(key)!;
+      return ok(coords);
+    } catch (e: any) {
+      cache.delete(key);
+      return err('Failed to resolve location from cache.');
+    }
   }
 
-  try {
-    if (mergedHints.placeId) {
-      const placeResult = await geocodeFromPlaceId(mergedHints.placeId);
-      if (placeResult.ok) {
-        cache.set(key, placeResult.data);
-        return placeResult;
+  const fetchPromise = (async () => {
+    try {
+      let primary = extractPrimaryDestination(destination);
+      // Strip emojis if any slipped through
+      primary = primary.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}]/gu, '').trim();
+
+      const url = new URL('https://api.weatherapi.com/v1/search.json');
+      url.searchParams.set('key', 'd638ebead38a4bb89a5233308263007');
+      url.searchParams.set('q', primary);
+
+      let res = await fetch(url.toString(), { cache: 'no-cache' });
+      let json = await res.json();
+
+      // Fallback logic for strict matching
+      if (!Array.isArray(json) || json.length === 0) {
+        const parts = primary.split(',').map(s => s.trim()).filter(Boolean);
+        
+        // Fallback 1: Try "First Part, Last Part" (e.g. "Shinjuku, Tokyo, Japan" -> "Shinjuku, Japan")
+        if (parts.length > 2) {
+          const fallback1 = `${parts[0]}, ${parts[parts.length - 1]}`;
+          url.searchParams.set('q', fallback1);
+          res = await fetch(url.toString(), { cache: 'no-cache' });
+          json = await res.json();
+        }
+
+        // Fallback 2: Try just the first part (e.g. "Shinjuku")
+        if ((!Array.isArray(json) || json.length === 0) && parts.length > 1) {
+          url.searchParams.set('q', parts[0]);
+          res = await fetch(url.toString(), { cache: 'no-cache' });
+          json = await res.json();
+        }
       }
-      // PlaceId fallback failed; continue with text geocoding for backward compatibility.
-      console.warn('[getCoordinatesFromCity] placeId geocode failed, falling back to text query:', placeResult.error);
+
+      if (!Array.isArray(json) || json.length === 0) {
+        throw new Error(`Could not find coordinates for "${destination}". Try a simpler city or country name.`);
+      }
+
+      const first = json[0];
+
+      const coords: Coordinates = {
+        lat: first.lat,
+        lon: first.lon,
+        resolvedName: `${first.name}, ${first.country}`,
+      };
+
+      return coords;
+    } catch (e: any) {
+      cache.delete(key);
+      throw e;
     }
+  })();
 
-    const url = new URL('https://api.openweathermap.org/geo/1.0/direct');
-    url.searchParams.set('q', extractPrimaryDestination(destination));
-    url.searchParams.set('limit', '5');
-    url.searchParams.set('appid', apiKey);
+  cache.set(key, fetchPromise);
 
-    const res = await fetch(url.toString());
-
-    if (!res.ok) {
-      return err(`Geocoding API error: HTTP ${res.status}`);
-    }
-
-    const json = await res.json() as OpenWeatherGeocodeResult[];
-
-    if (!Array.isArray(json) || json.length === 0) {
-      return err(
-        `Could not find coordinates for "${destination}". ` +
-        'Try a more specific name, e.g. "Goa, India".'
-      );
-    }
-
-    const candidate = pickBestCandidate(
-      json,
-      mergedHints.expectedCountry,
-      mergedHints.expectedState,
-    );
-    if (!candidate.ok) {
-      return err(
-        `${candidate.error} ` +
-        `Try a more specific destination (e.g. "City, Country").`
-      );
-    }
-
-    const { lat, lon, name, state, country } = candidate.data;
-    const coords: Coordinates = {
-      lat,
-      lon,
-      resolvedName: state ? `${name}, ${state}, ${country}` : `${name}, ${country}`,
-    };
-
-    cache.set(key, coords);
+  try {
+    const coords = await fetchPromise;
     return ok(coords);
   } catch (e: any) {
     console.error('[getCoordinatesFromCity]', e);
-    return err('Failed to resolve location. Check your network connection.');
+    // Pass the actual underlying message so we can see what's happening (e.g., HTTP 401, HTTP 429, Failed to fetch)
+    return err(e.message || 'Failed to resolve location due to a network or rate-limit error.');
   }
 }

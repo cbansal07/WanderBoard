@@ -1,6 +1,6 @@
 import { WeatherDashboard } from '@/features/weather';
 import { useTripStore } from './useTripStore';
-import { useTripGeo } from './TripWorkspacePage';
+import { useTripGeo } from './TripGeoContext';
 
 export function TripWeatherPage() {
   const { activeTrip } = useTripStore();

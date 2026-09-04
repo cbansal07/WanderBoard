@@ -7,6 +7,7 @@ import {
   query,
   where,
   runTransaction,
+  deleteDoc,
 } from 'firebase/firestore';
 import { db } from '@/config/firebase';
 import { generateInviteCode, isValidInviteCode, normalizeInviteCode } from '@/lib/generateInviteCode';
@@ -501,5 +502,16 @@ export async function setSelectedDestinationCity(
     if (e?.message === 'CITY_NOT_FOUND') return err('Selected city is not part of this trip.');
     console.error('[setSelectedDestinationCity]', e);
     return err('Failed to update selected city.');
+  }
+}
+
+
+export async function deleteTrip(tripId: string): Promise<Result<void>> {
+  try {
+    await deleteDoc(tripDoc(tripId));
+    return ok(undefined);
+  } catch (e: any) {
+    console.error('[deleteTrip]', e);
+    return err('Failed to delete trip.');
   }
 }

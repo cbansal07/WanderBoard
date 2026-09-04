@@ -17,4 +17,23 @@ export default defineConfig({
     globals: true,
     setupFiles: [],
   },
+  server: {
+    proxy: {
+      '/api/locationiq': {
+        target: 'https://us1.locationiq.com/v1',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/locationiq/, ''),
+      },
+      '/api/nominatim': {
+        target: 'https://nominatim.openstreetmap.org',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/nominatim/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('User-Agent', 'WanderBoard/0.1.0 (contact: your-email@example.com)');
+          });
+        },
+      }
+    }
+  }
 });

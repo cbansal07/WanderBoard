@@ -11,6 +11,7 @@ import { TripDiscoveryPage } from '@/features/trips/TripDiscoveryPage';
 import { TripWeatherPage } from '@/features/trips/TripWeatherPage';
 import { ExpensesPage } from '@/features/expenses/ExpensesPage';
 import { TimelinePage } from '@/features/timeline/TimelinePage';
+import { PanelErrorBoundary } from '@/components/PanelErrorBoundary';
 import { ROUTES } from '@/config/routes';
 
 export default function App() {
@@ -26,7 +27,14 @@ export default function App() {
           <Route element={<ProtectedRoute />}>
             <Route path={ROUTES.DASHBOARD} element={<DashboardPage />} />
 
-            <Route path={ROUTES.TRIP} element={<TripWorkspacePage />}>
+            <Route
+              path={ROUTES.TRIP}
+              element={
+                <PanelErrorBoundary panelKey="workspace">
+                  <TripWorkspacePage />
+                </PanelErrorBoundary>
+              }
+            >
               <Route index element={<Navigate to="planning" replace />} />
 
               <Route path="planning" element={<TripPlanningPage />} />

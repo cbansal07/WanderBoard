@@ -4,17 +4,16 @@ import { useAuth } from '@/features/auth/AuthProvider';
 import { ensureUserDocumentForUser } from '@/features/auth/authService';
 import { auth } from '@/config/firebase';
 import { useTripStore } from './useTripStore';
-import { getUserTrips, createTrip, joinTrip } from './tripService';
+import { getUserTrips, createTrip, joinTrip, deleteTrip } from './tripService';
 import { signOut } from '@/features/auth/authService';
 import { ROUTES } from '@/config/routes';
-import { useJsApiLoader } from '@react-google-maps/api';
 import { DEFAULT_TRIP_CURRENCY, TRIP_CURRENCY_OPTIONS } from '@/lib/currency';
 import type { Trip } from '@/types';
 import { resolvePlaceCoordinates } from '@/features/discovery/services/placesApi';
 import { Avatar } from '@/components/Avatar';
 import { Sticker } from '@/components/Sticker';
 
-const CREATE_TRIP_MAP_LIBRARIES: ('places' | 'geometry')[] = ['places', 'geometry'];
+
 
 // Curated travel photos for trip cards (cycled by index)
 const COVER_PHOTOS = [
@@ -35,8 +34,9 @@ const TRIP_STICKERS = [
   { emoji: '🤿', label: 'Dive',      color: 'ocean' as const, rotation: 'right' as const },
 ];
 
-function getDaysToGo(startDate: string): number {
-  return Math.ceil((new Date(startDate).getTime() - Date.now()) / 86400000);
+function getDaysToGo(startDate?: string): number {
+  if (!startDate) return 0;
+  return Math.max(0, Math.ceil((new Date(startDate).getTime() - Date.now()) / 86400000));
 }
 
 function normalizeCity(city: string): string {
@@ -60,7 +60,7 @@ function resolveDisplayName(user: { displayName?: string | null; email?: string 
 export function DashboardPage() {
   const { user }   = useAuth();
   const navigate   = useNavigate();
-  const { trips, tripsLoading, tripsError, setTrips, addTrip, setLoading, setError, reset } = useTripStore();
+  const { trips, tripsLoading, tripsError, setTrips, addTrip, removeTrip, setLoading, setError, reset } = useTripStore();
 
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin,   setShowJoin]   = useState(false);
@@ -87,6 +87,16 @@ export function DashboardPage() {
     await signOut();
     reset();
     navigate(ROUTES.LOGIN, { replace: true });
+  }
+
+  async function handleDeleteTrip(tripId: string) {
+    if (!confirm('Are you sure you want to delete this trip?')) return;
+    const result = await deleteTrip(tripId);
+    if (result.ok) {
+      removeTrip(tripId);
+    } else {
+      alert('Failed to delete trip.');
+    }
   }
 
   const ownedTrips = trips.filter((t) => t.ownerId === user?.uid);
@@ -201,6 +211,7 @@ export function DashboardPage() {
                 photoUrl={COVER_PHOTOS[idx % COVER_PHOTOS.length]}
                 sticker={TRIP_STICKERS[idx % TRIP_STICKERS.length]}
                 onClick={() => navigate(ROUTES.tripPlanning(trip.id))}
+                onDelete={trip.ownerId === user?.uid ? () => handleDeleteTrip(trip.id) : undefined}
               />
             ))}
           </div>
@@ -387,9 +398,9 @@ function QuickActionsPanel({ inviteCode, onNewTrip, onJoin }: {
 
 // ─── Trip card ─────────────────────────────────────────────────────────────────
 
-function TripCard({ trip, isOwner, photoUrl, sticker, onClick }: {
+function TripCard({ trip, isOwner, photoUrl, sticker, onClick, onDelete }: {
   trip: Trip; isOwner: boolean; photoUrl: string;
-  sticker: typeof TRIP_STICKERS[0]; onClick: () => void;
+  sticker: typeof TRIP_STICKERS[0]; onClick: () => void; onDelete?: () => void;
 }) {
   const daysToGo = getDaysToGo(trip.startDate);
 
@@ -405,19 +416,34 @@ function TripCard({ trip, isOwner, photoUrl, sticker, onClick }: {
 
         {/* Sticker + role pill */}
         <div className="absolute top-3 left-3 right-3 flex justify-between items-start z-10">
-          <Sticker color={sticker.color} rotation={sticker.rotation}>
-            {sticker.emoji} {sticker.label}
-          </Sticker>
-          <span
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
-            style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--wb-ink)' }}
-          >
+          <div className="flex flex-col gap-2">
+            <Sticker color={sticker.color} rotation={sticker.rotation}>
+              {sticker.emoji} {sticker.label}
+            </Sticker>
+          </div>
+          <div className="flex items-center gap-2">
             <span
-              className="w-1.5 h-1.5 rounded-full"
-              style={{ background: isOwner ? 'var(--wb-sunset)' : 'var(--wb-ink-soft)' }}
-            />
-            {isOwner ? 'Owner' : 'Member'}
-          </span>
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+              style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--wb-ink)' }}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ background: isOwner ? 'var(--wb-sunset)' : 'var(--wb-ink-soft)' }}
+              />
+              {isOwner ? 'Owner' : 'Member'}
+            </span>
+            {onDelete && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                className="w-7 h-7 rounded-full bg-white flex items-center justify-center shadow-md transition-transform hover:scale-110"
+                style={{ color: 'var(--wb-sunset)' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Title overlay */}
@@ -560,14 +586,6 @@ function CreateTripModal({ userId, onClose, onCreated }: {
   const [loading, setLoading]               = useState(false);
 
   const destinationInputRef = useRef<HTMLInputElement | null>(null);
-  const autocompleteRef     = useRef<google.maps.places.Autocomplete | null>(null);
-
-  const { isLoaded, loadError } = useJsApiLoader({
-    id: 'google-map-script',
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '',
-    libraries: CREATE_TRIP_MAP_LIBRARIES,
-  });
-
   function addDestinationCity(city: string) {
     const normalized = normalizeCity(city);
     if (!normalized) return;
@@ -584,28 +602,6 @@ function CreateTripModal({ userId, onClose, onCreated }: {
     setDestinationInput('');
   }
 
-  useEffect(() => {
-    if (!isLoaded || !destinationInputRef.current || autocompleteRef.current) return;
-    let listener: google.maps.MapsEventListener | null = null;
-    try {
-      const ac = new window.google.maps.places.Autocomplete(
-        destinationInputRef.current,
-        { types: ['(cities)'], fields: ['formatted_address'] },
-      );
-      autocompleteRef.current = ac;
-      listener = ac.addListener('place_changed', () => {
-        const place = ac.getPlace();
-        if (!place?.formatted_address) return;
-        addDestinationCity(place.formatted_address);
-        setDestinationInput('');
-        window.setTimeout(() => destinationInputRef.current?.focus(), 0);
-      });
-    } catch (err) {
-      console.error('[CreateTripModal] Places autocomplete init failed:', err);
-    }
-    return () => { listener?.remove(); };
-  }, [isLoaded]);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
@@ -616,8 +612,12 @@ function CreateTripModal({ userId, onClose, onCreated }: {
     }
     const trimmedDestination = merged.join('; ');
     if (!trimmedDestination) { setError('Please add at least one city.'); return; }
-    if (!isLoaded || loadError) { setError('Google Places is unavailable. Please try again.'); return; }
-    if (new Date(endDate) < new Date(startDate)) { setError('End date must be after start date.'); return; }
+    
+    if (!startDate || !endDate) { setError('Please set both start and end dates.'); return; }
+    const startD = new Date(startDate);
+    const endD = new Date(endDate);
+    if (isNaN(startD.getTime()) || isNaN(endD.getTime())) { setError('Please enter valid dates.'); return; }
+    if (endD < startD) { setError('End date must be after start date.'); return; }
 
     setLoading(true);
     let destinationLocation: { lat: number; lng: number } | undefined;
@@ -626,14 +626,16 @@ function CreateTripModal({ userId, onClose, onCreated }: {
 
     try {
       const resolved = await resolvePlaceCoordinates(merged[0]);
-      if (!resolved) { setLoading(false); setError('Could not resolve destination coordinates.'); return; }
-      destinationLocation  = resolved.location;
-      destinationPlaceId   = resolved.placeId;
-      destinationPlaceName = resolved.name;
+      if (resolved) {
+        destinationLocation  = resolved.location;
+        destinationPlaceId   = resolved.placeId;
+        destinationPlaceName = resolved.name;
+      }
+      // If geocoding fails, we proceed anyway — coordinates will be resolved
+      // lazily when the workspace opens (fallback to Nominatim lookup there).
     } catch (placeError: any) {
-      setLoading(false);
-      setError(placeError?.message ?? 'Failed to resolve destination coordinates.');
-      return;
+      console.warn('[CreateTrip] Geocoding failed, proceeding without coordinates:', placeError);
+      // Non-blocking — still create the trip
     }
 
     const destinationCitiesPayload = merged.map((city, index) => ({
@@ -718,7 +720,6 @@ function CreateTripModal({ userId, onClose, onCreated }: {
               style={{ color: 'var(--wb-ink)' }}
             />
           </div>
-          {loadError && <p className="mt-1 text-xs" style={{ color: 'var(--wb-sunset)' }}>Autocomplete unavailable — type manually.</p>}
           <div className="flex flex-wrap gap-2 mt-2">
             {QUICK_PICKS.map((p) => (
               <button

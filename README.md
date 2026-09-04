@@ -2,7 +2,7 @@
 
 Fed up with scattered group chats and conflicting trip plans? WanderBoard lets your friend group discover activities together, vote on what to do, auto-schedule it all, and split costs without the drama.
 
-**IIT Roorkee · CSC 206 Software Engineering · Group 9**
+
 
 ---
 
@@ -380,15 +380,8 @@ Let an LLM suggest whole itineraries based on what your group likes
 
 ---
 
-## 👥 Team & Contributing
 
-### Who Built This
-- **Dhruv** — Designed the whole UI/UX along with frontend and backend firestore integration
-- **Keshav** — Designed the whole google maps integration systemn 
-- **Dakshata** — Worked on the discovery engine ,designed and made with visually appealing
-- **Garima** — built the whole core bucket list functionality with drag and drop
-- **Naivadhya** — Built the whole expense tracking and settlement algorithm
-- **Bhoomika** —Worked on the weather API along with smart contingency flagging
+## 👥 Contributing
 
 ### Want to Help?
 
@@ -470,7 +463,3 @@ Run `npx tsc --noEmit` to see what's actually wrong
 Check the docs folder (PROJECT_OVERVIEW.txt has everything), open a GitHub issue, or hit us up in Slack
 
 ---
-
-**Made by Group 9 @ IIT Roorkee CSC 206**
----
-***Bhoomika Chourasiya  |  Dakshata Aggrawal  |  Dhruv Aggarwal  |  Keshav Dharni  |  Naivadhya Garg  |  Garima***

@@ -15,7 +15,7 @@ export function SearchBar({
   onResults,
   onLoadingChange,
   onErrorChange,
-  debounceMs = 450,
+  debounceMs = 1200,
   placeholder = 'Search destinations, cafes, attractions...',
   disabled = false,
 }: SearchBarProps) {
@@ -38,11 +38,7 @@ export function SearchBar({
       onLoadingChange?.(true);
 
       try {
-        if (!window.google?.maps?.places) {
-          onResults([]);
-          onErrorChange?.('Google Maps is still loading. Please try again in a moment.');
-          return;
-        }
+
 
         const places = await searchPlaces(normalizedQuery);
         if (requestId !== requestIdRef.current) {

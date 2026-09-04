@@ -1,10 +1,11 @@
 import { createContext, useCallback, useContext, useRef, useState } from 'react';
 import type { ReactNode, MutableRefObject } from 'react';
+import type * as L from 'leaflet';
 import type { MapMarker } from '@/components/MapView';
 
 interface TripMapContextValue {
   // Map instance — set once in TripWorkspacePage's onLoad
-  mapRef:    MutableRefObject<google.maps.Map | null>;
+  mapRef:    MutableRefObject<L.Map | null>;
   isLoaded:  boolean;
   idleTick:  number;
 
@@ -30,7 +31,7 @@ export function useTripMap(): TripMapContextValue {
 }
 
 export function TripMapProvider({ children }: { children: ReactNode }) {
-  const mapRef = useRef<google.maps.Map | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
 
   const [isLoaded,         setMapLoaded]         = useState(false);
   const [idleTick,         setIdleTick]           = useState(0);

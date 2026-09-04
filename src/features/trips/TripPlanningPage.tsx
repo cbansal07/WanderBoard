@@ -10,6 +10,7 @@ import { DayCard } from './components/DayCard';
 import { SlotRow, EmptySlotRow } from './components/SlotRow';
 
 function getDatesInRange(startDate: string, endDate: string): string[] {
+  if (!startDate || !endDate) return [];
   const startMatch = startDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const endMatch = endDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!startMatch || !endMatch) return [];
@@ -159,9 +160,10 @@ export function TripPlanningPage() {
     setMapMarkers(markers);
   }, [events, bucketItems, expandedDay, setMapMarkers, hasDiscoveryPanel, hasBucketPanel]);
 
-  if (!activeTrip) return null;
-
-  const tripDays = getDatesInRange(activeTrip.startDate, activeTrip.endDate);
+  const tripDays = useMemo(
+    () => activeTrip ? getDatesInRange(activeTrip.startDate, activeTrip.endDate) : [],
+    [activeTrip],
+  );
   const tripDaySet = useMemo(() => new Set(tripDays), [tripDays]);
   const plannedEvents = useMemo(
     () => events.filter((event) => tripDaySet.has(event.date)),
@@ -179,6 +181,8 @@ export function TripPlanningPage() {
     () => new Map(bucketItems.map((item) => [item.id, item])),
     [bucketItems],
   );
+
+  if (!activeTrip) return null;
 
   function handleToggleDay(day: string) {
     setExpandedDay((prev) => (prev === day ? null : day));

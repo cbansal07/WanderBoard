@@ -1,65 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { useJsApiLoader } from '@react-google-maps/api';
 import type { MapMarker } from '@/components/MapView';
 import { DiscoveryList } from '@/features/discovery/components/DiscoveryList';
 import { AddToBucketModal } from '@/features/discovery/components/AddToBucketModal';
 import type { Place } from '@/features/discovery/types';
 import { getPlaceColor, getPlaceLabel } from '@/features/discovery/utils/placeColor';
 import { addToBucket } from '@/features/discovery/services/bucketService';
+import { searchPlaces } from '@/features/discovery/services/placesApi';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { err, ok, type BucketListUserData } from '@/types';
 import { useTripStore } from './useTripStore';
 import { useTripMap } from './TripMapContext';
-import { useTripGeo } from './TripWorkspacePage';
-import { appendTripDestinationCity } from './tripService';
+import { useTripGeo } from './TripGeoContext';
 
-const MAP_LIBRARIES: ('places' | 'geometry')[] = ['places', 'geometry'];
-const SEARCH_DEBOUNCE_MS = 350;
-const MIN_RADIUS_METERS  = 500;
-const MAX_RADIUS_METERS  = 50_000;
-
-function normalizeCityName(name: string): string {
-  return name.replace(/\s+/g, ' ').trim();
-}
-
-function getCityLabelFromPlace(place: google.maps.places.PlaceResult): string {
-  const components = place.address_components ?? [];
-  const locality = components.find((component) => component.types.includes('locality'))?.long_name;
-  if (locality) return normalizeCityName(locality);
-
-  const adminArea = components.find((component) => component.types.includes('administrative_area_level_1'))?.long_name;
-  if (adminArea) return normalizeCityName(adminArea);
-
-  const formattedPrefix = place.formatted_address?.split(',')[0] ?? '';
-  if (formattedPrefix) return normalizeCityName(formattedPrefix);
-
-  return normalizeCityName(place.name ?? '');
-}
-
-function mapNearbyResult(result: google.maps.places.PlaceResult): Place | null {
-  if (!result.place_id || !result.name) return null;
-
-  const photo = result.photos?.[0];
-  let photoUrl = '';
-  if (photo) {
-    try { photoUrl = photo.getUrl({ maxWidth: 800, maxHeight: 600 }); } catch { photoUrl = ''; }
-  }
-
-  return {
-    placeId:  result.place_id,
-    name:     result.name,
-    rating:   typeof result.rating === 'number' ? result.rating : 0,
-    address:  result.vicinity ?? result.formatted_address ?? 'Address unavailable',
-    photoUrl,
-    types:    result.types ?? [],
-    location: result.geometry?.location
-      ? { lat: result.geometry.location.lat(), lng: result.geometry.location.lng() }
-      : undefined,
-  };
-}
-
-// ─── Info-window card rendered on the shared map ───────────────────────────────
+const SEARCH_DEBOUNCE_MS = 1200;
 
 function PlaceInfoCard({
   place,
@@ -165,13 +119,9 @@ function PlaceInfoCard({
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export function TripDiscoveryPage() {
-  const { activeTrip, upsertActiveDestinationCity, patchActiveTrip } = useTripStore((s) => ({
+  const { activeTrip } = useTripStore((s) => ({
     activeTrip: s.activeTrip,
-    upsertActiveDestinationCity: s.upsertActiveDestinationCity,
-    patchActiveTrip: s.patchActiveTrip,
   }));
   const { geo }        = useTripGeo();
   const {
@@ -188,109 +138,33 @@ export function TripDiscoveryPage() {
 
   const debounceTimerRef     = useRef<number | null>(null);
   const requestIdRef         = useRef(0);
-  const autocompleteInputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef      = useRef<google.maps.places.Autocomplete | null>(null);
-
-  const { isLoaded } = useJsApiLoader({
-    id:               'google-map-script',
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY ?? '',
-    libraries:        MAP_LIBRARIES,
-  });
 
   const normalizedQuery = useMemo(() => searchQuery.trim(), [searchQuery]);
 
-  // Attach Places Autocomplete for camera fly-to
-  useEffect(() => {
-    if (!isLoaded || !autocompleteInputRef.current) return;
-
-    autocompleteRef.current = new window.google.maps.places.Autocomplete(
-      autocompleteInputRef.current,
-      { fields: ['geometry', 'name', 'place_id', 'formatted_address', 'address_components'] },
-    );
-
-    autocompleteRef.current.addListener('place_changed', () => {
-      const p = autocompleteRef.current?.getPlace();
-      if (!p?.geometry?.location) return;
-      const loc = { lat: p.geometry.location.lat(), lng: p.geometry.location.lng() };
-      mapRef.current?.panTo(loc);
-      mapRef.current?.setZoom(14);
-
-      const cityName = getCityLabelFromPlace(p);
-      if (!activeTrip || !cityName) return;
-
-      const cityPayload = {
-        name: cityName,
-        placeId: p.place_id,
-        location: loc,
-      };
-
-      upsertActiveDestinationCity(cityPayload);
-      void appendTripDestinationCity(activeTrip.id, cityPayload).then((result) => {
-        if (!result.ok) return;
-        patchActiveTrip({
-          destination: result.data.destination,
-          destinationCities: result.data.destinationCities,
-          selectedDestinationCity: result.data.selectedDestinationCity,
-        });
-      });
-    });
-
-    return () => {
-      if (autocompleteRef.current) {
-        window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
-      }
-    };
-  }, [isLoaded, mapRef, activeTrip, upsertActiveDestinationCity, patchActiveTrip]);
-
-  // Scroll sidebar to card when a pin is selected
   useEffect(() => {
     if (!selectedMarkerId) return;
     document.getElementById(`place-card-${selectedMarkerId}`)
       ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [selectedMarkerId]);
 
-  const executeNearbySearch = useCallback(() => {
-    const map = mapRef.current;
-    if (!map || !window.google?.maps?.places || !window.google?.maps?.geometry) return;
-
-    const center = map.getCenter();
-    const bounds = map.getBounds();
-    if (!center || !bounds) return;
-
-    const ne = bounds.getNorthEast();
-    const sw = bounds.getSouthWest();
-    const viewportDiameter =
-      window.google.maps.geometry.spherical.computeDistanceBetween(ne, sw);
-    const radius = Math.max(
-      MIN_RADIUS_METERS,
-      Math.min(MAX_RADIUS_METERS, Math.round(viewportDiameter / 2)),
-    );
+  const executeNearbySearch = useCallback(async () => {
+    if (!activeTrip) return;
+    const query = normalizedQuery || `attractions in ${activeTrip.selectedDestinationCity || activeTrip.destination}`;
 
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setSearchError(null);
 
-    const service = new window.google.maps.places.PlacesService(map);
-    service.nearbySearch(
-      { location: center, radius, keyword: normalizedQuery || undefined },
-      (results, status) => {
-        if (requestId !== requestIdRef.current) return;
-        setHasSearched(true);
-        if (status === window.google.maps.places.PlacesServiceStatus.ZERO_RESULTS || !results) {
-          setPlaces([]); setLoading(false); return;
-        }
-        if (status !== window.google.maps.places.PlacesServiceStatus.OK) {
-          setPlaces([]); setSearchError(`Search failed: ${status}`); setLoading(false); return;
-        }
-        setPlaces(results.map(mapNearbyResult).filter((p): p is Place => p !== null));
-        setLoading(false);
-      },
-    );
-  }, [normalizedQuery, mapRef]);
+    const results = await searchPlaces(query);
 
-  // Debounced re-search on idle (pan/zoom via context idleTick) or keyword change
+    if (requestId !== requestIdRef.current) return;
+    setHasSearched(true);
+    setPlaces(results);
+    setLoading(false);
+  }, [normalizedQuery, activeTrip]);
+
   useEffect(() => {
-    if (geo.status !== 'ready' || !mapRef.current || !isLoaded) return;
+    if (geo.status !== 'ready' || !mapRef.current) return;
 
     if (debounceTimerRef.current !== null) window.clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = window.setTimeout(executeNearbySearch, SEARCH_DEBOUNCE_MS);
@@ -298,55 +172,17 @@ export function TripDiscoveryPage() {
     return () => {
       if (debounceTimerRef.current !== null) window.clearTimeout(debounceTimerRef.current);
     };
-  }, [geo.status, idleTick, isLoaded, normalizedQuery, executeNearbySearch, mapRef]);
+  }, [geo.status, idleTick, normalizedQuery, executeNearbySearch, mapRef]);
 
-  // Initial search once map bounds are ready (without requiring manual map interaction)
   useEffect(() => {
-    if (geo.status !== 'ready' || !isLoaded || hasSearched) return;
-
-    let attempts = 0;
-    let timer: number | null = null;
-    let cancelled = false;
-
-    const schedule = (delay: number) => {
-      timer = window.setTimeout(run, delay);
-    };
-
-    const run = () => {
-      if (cancelled) return;
-
-      const map = mapRef.current;
-      const readyForSearch = Boolean(
-        map &&
-        map.getBounds() &&
-        window.google?.maps?.places &&
-        window.google?.maps?.geometry,
-      );
-
-      if (readyForSearch) {
-        executeNearbySearch();
-        return;
-      }
-
-      attempts += 1;
-      if (attempts < 30) {
-        schedule(150);
-      }
-    };
-
-    schedule(0);
-
-    return () => {
-      cancelled = true;
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, [geo.status, isLoaded, hasSearched, executeNearbySearch, mapRef]);
+    if (geo.status !== 'ready' || hasSearched || !mapRef.current) return;
+    executeNearbySearch();
+  }, [geo.status, hasSearched, executeNearbySearch, mapRef]);
 
   useEffect(() => () => {
     if (debounceTimerRef.current !== null) window.clearTimeout(debounceTimerRef.current);
   }, []);
 
-  // Push markers + info-window renderer into shared map context
   useEffect(() => {
     if (!activeTrip) return;
     const markers: MapMarker[] = places
@@ -359,7 +195,7 @@ export function TripDiscoveryPage() {
       }));
     setMapMarkers(markers);
 
-    const renderer = (id: string): ReactNode => {
+    setRenderInfoWindow((id: string) => {
       const place = places.find((p) => p.placeId === id);
       return place ? (
         <PlaceInfoCard
@@ -369,8 +205,7 @@ export function TripDiscoveryPage() {
           tripEndDate={activeTrip.endDate}
         />
       ) : null;
-    };
-    setRenderInfoWindow(renderer);
+    });
 
     return () => {
       setMapMarkers([]);
@@ -378,7 +213,6 @@ export function TripDiscoveryPage() {
     };
   }, [places, activeTrip, setMapMarkers, setRenderInfoWindow]);
 
-  // Clear marker selection on unmount
   useEffect(() => () => {
     setSelectedMarkerId(null);
     setHoveredMarkerId(null);
@@ -387,7 +221,9 @@ export function TripDiscoveryPage() {
   function handleCardClick(placeId: string) {
     setSelectedMarkerId(placeId);
     const loc = places.find((p) => p.placeId === placeId)?.location;
-    if (loc) mapRef.current?.panTo(loc);
+    if (loc && mapRef.current) {
+      mapRef.current.setView(loc, 14, { animate: true });
+    }
   }
 
   if (!activeTrip) return null;
@@ -395,7 +231,6 @@ export function TripDiscoveryPage() {
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--wb-paper)' }}>
 
-      {/* Header */}
       <div
         className="px-6 pt-5 pb-4 flex-shrink-0"
         style={{ borderBottom: '1px solid var(--wb-line)' }}
@@ -406,28 +241,7 @@ export function TripDiscoveryPage() {
         </h2>
       </div>
 
-      {/* Fly-to location search (Autocomplete) */}
-      <div className="px-6 pt-4 pb-3 flex-shrink-0">
-        <div
-          className="flex items-center gap-2 rounded-[10px] px-3 py-2.5"
-          style={{ border: '1.5px solid var(--wb-line)', background: '#fff', boxShadow: 'var(--wb-shadow-sm)' }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--wb-ink-soft)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-          <input
-            ref={autocompleteInputRef}
-            type="text"
-            placeholder="Fly to a location…"
-            className="w-full border-0 bg-transparent text-sm outline-none"
-            style={{ color: 'var(--wb-ink)' }}
-          />
-        </div>
-      </div>
-
-      {/* Keyword filter */}
-      <div className="px-6 pb-3 flex-shrink-0">
-        <p className="text-[11px] mb-2" style={{ color: 'var(--wb-ink-soft)' }}>Search follows the visible map area.</p>
+      <div className="px-6 pb-3 pt-3 flex-shrink-0">
         <div
           className="flex items-center gap-2 rounded-[10px] px-3 py-2.5"
           style={{ border: '1.5px solid var(--wb-line)', background: '#fff', boxShadow: 'var(--wb-shadow-sm)' }}
@@ -454,7 +268,6 @@ export function TripDiscoveryPage() {
         )}
       </div>
 
-      {/* Place cards */}
       <div className="flex-1 overflow-y-auto px-6 pb-6">
         {geo.status === 'loading' || geo.status === 'idle' ? (
           <div className="flex items-center justify-center h-full">

@@ -16,79 +16,68 @@ function addMinutes(date: Date, minutes: number): Date {
   return new Date(date.getTime() + minutes * 60_000);
 }
 
-// ─── Weather data (OpenWeatherMap free One-Call-compatible endpoint) ───────────
-// Uses the /forecast endpoint (free tier) to get precipitation probability
-// for the requested date. Falls back to /weather for current conditions.
+const WEATHER_API_KEY = 'd638ebead38a4bb89a5233308263007';
+const weatherApiCache = new Map<string, Promise<any>>();
 
 export async function fetchWeatherData(
   coords: WeatherCoords
 ): Promise<Result<WeatherData>> {
-  const apiKey = import.meta.env.VITE_WEATHER_API_KEY as string | undefined;
-
-  if (!apiKey) {
-    return err(
-      'Missing VITE_WEATHER_API_KEY. Add it to .env.local to enable weather data.'
-    );
-  }
-
   try {
-    // /forecast gives 3-hourly forecasts for 5 days (free tier)
-    const url = new URL('https://api.openweathermap.org/data/2.5/forecast');
-    url.searchParams.set('lat', String(coords.lat));
-    url.searchParams.set('lon', String(coords.lon));
-    url.searchParams.set('appid', apiKey);
-    url.searchParams.set('units', 'metric');
+    const cacheKey = `${coords.lat.toFixed(3)}|${coords.lon.toFixed(3)}`;
+    
+    if (!weatherApiCache.has(cacheKey)) {
+      const fetchPromise = (async () => {
+        const url = new URL('https://api.weatherapi.com/v1/forecast.json');
+        url.searchParams.set('key', WEATHER_API_KEY);
+        url.searchParams.set('q', `${coords.lat},${coords.lon}`);
+        url.searchParams.set('days', '14');
 
-    const res = await fetch(url.toString());
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const msg: string = (body as any)?.message ?? `HTTP ${res.status}`;
-      return err(`Weather API error: ${msg}`);
+        const res = await fetch(url.toString());
+        if (!res.ok) {
+          throw new Error(`Weather API error: HTTP ${res.status}`);
+        }
+        const json = await res.json();
+        if (!json?.forecast?.forecastday || json.forecast.forecastday.length === 0) {
+          throw new Error('No forecast data returned for this location.');
+        }
+        return json;
+      })();
+      weatherApiCache.set(cacheKey, fetchPromise);
     }
 
-    const json = await res.json() as {
-      city?: { name: string };
-      list: Array<{
-        dt: number;
-        main: { temp: number; feels_like: number; humidity: number };
-        weather: Array<{ description: string; icon: string }>;
-        wind: { speed: number };
-        pop: number; // precipitation probability 0–1
-        dt_txt: string;
-      }>;
-    };
+    // Wait for the shared promise to resolve
+    const json = await weatherApiCache.get(cacheKey);
 
-    if (!json.list?.length) {
-      return err('No forecast data returned for this location.');
+    const targetDate = coords.date; 
+    let dayData = json.forecast.forecastday.find((d: any) => d.date === targetDate);
+    
+    if (!dayData) {
+      // If the target date is outside the forecast window (e.g., \u003e 14 days in the future),
+      // we can't get an exact forecast. Fallback to returning the last available day's data
+      // or the first day's data as a rough placeholder, rather than failing completely.
+      dayData = json.forecast.forecastday[json.forecast.forecastday.length - 1];
+      if (!dayData) {
+        return err(`No weather data available for ${targetDate}`);
+      }
     }
 
-    // Find the forecast entry closest to noon on the requested date
-    const targetDate = coords.date; // YYYY-MM-DD
-    const dateEntries = json.list.filter((e) => e.dt_txt.startsWith(targetDate));
-    const entry = dateEntries.length
-      ? dateEntries.reduce((prev, curr) => {
-          // prefer the entry closest to 12:00
-          const prevDelta = Math.abs(new Date(prev.dt_txt).getHours() - 12);
-          const currDelta = Math.abs(new Date(curr.dt_txt).getHours() - 12);
-          return currDelta < prevDelta ? curr : prev;
-        })
-      : json.list[0]; // fallback to nearest available
+    const day = dayData.day;
+    const locationName = json.location?.name || 'Destination';
 
     return ok({
-      temperature:              Math.round(entry.main.temp),
-      feelsLike:                Math.round(entry.main.feels_like),
-      description:              entry.weather[0]?.description ?? 'Unknown',
-      icon:                     entry.weather[0]?.icon ?? '01d',
-      humidity:                 entry.main.humidity,
-      windSpeed:                Math.round(entry.wind.speed * 10) / 10,
-      precipitationProbability: Math.round((entry.pop ?? 0) * 100),
+      temperature:              Math.round(day.avgtemp_c),
+      feelsLike:                Math.round(day.avgtemp_c),
+      description:              day.condition.text,
+      icon:                     day.condition.icon.replace('//', 'https://'),
+      humidity:                 Math.round(day.avghumidity),
+      windSpeed:                Math.round((day.maxwind_kph * 1000) / 3600), // convert km/h to m/s
+      precipitationProbability: day.daily_chance_of_rain,
       fetchedAt:                Date.now(),
-      location:                 json.city?.name ?? 'Unknown location',
+      location:                 locationName,
     });
   } catch (e: any) {
     console.error('[fetchWeatherData]', e);
-    return err('Failed to fetch weather data. Check your network connection.');
+    return err('Failed to fetch weather data. Check your network connection or API quota.');
   }
 }
 

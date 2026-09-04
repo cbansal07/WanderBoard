@@ -49,7 +49,7 @@ function toAppUser(cred: UserCredential): AppUser {
 // ─── Map Firebase error codes → human-readable messages ──────────────────────
 // Never expose raw Firebase error codes to the UI.
 
-function mapAuthError(code: string): string {
+function mapAuthError(code: string, message?: string): string {
   const map: Record<string, string> = {
     'auth/email-already-in-use':    'An account with this email already exists.',
     'auth/invalid-email':           'Please enter a valid email address.',
@@ -61,7 +61,7 @@ function mapAuthError(code: string): string {
     'auth/popup-closed-by-user':    'Sign-in cancelled.',
     'auth/network-request-failed':  'Network error. Check your connection and try again.',
   };
-  return map[code] ?? 'An unexpected error occurred. Please try again.';
+  return map[code] ?? `Error: ${code} - ${message || 'Unknown error'}`;
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ export async function signInWithEmail(
     await ensureUserDocumentForUser(cred.user);
     return ok(toAppUser(cred));
   } catch (e: any) {
-    return err(mapAuthError(e.code));
+    return err(mapAuthError(e.code, e.message));
   }
 }
 

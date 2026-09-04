@@ -21,7 +21,7 @@ import { BucketListSidebar } from './components/BucketListSidebar';
 import { CreateEventModal } from './components/CreateEventModal';
 import type { BucketItem } from './components/BucketListSidebar';
 import { DayWeatherSummary } from '@/features/weather/DayWeatherSummary';
-import { useTripGeo } from '@/features/trips/TripWorkspacePage';
+import { useTripGeo } from '@/features/trips/TripGeoContext';
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +54,7 @@ function normalizeLocation(raw: any): { lat: number; lng: number } | undefined {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getDatesInRange(startDate: string, endDate: string): string[] {
+  if (!startDate || !endDate) return [];
   const startMatch = startDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   const endMatch = endDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!startMatch || !endMatch) return [];
@@ -271,15 +272,16 @@ export function TimelinePage() {
     else           addToast(result.error, 'error');
   }
 
-  if (!activeTrip) return null;
-
-  const showWeatherStrip = geo.status === 'ready' && tripDays.length > 0;
   const scheduledBucketIds = useMemo(
     () => new Set(events
       .map((ev) => ev.bucketItemId)
       .filter((id): id is string => Boolean(id))),
     [events],
   );
+
+  if (!activeTrip) return null;
+
+  const showWeatherStrip = geo.status === 'ready' && tripDays.length > 0;
 
   // Day navigation helpers (single-day mode)
   const currentDayIndex = selectedDayIndex;
