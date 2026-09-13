@@ -48,7 +48,7 @@ function clampPanelWidth(
   return Math.max(MIN_PANEL_WIDTH_PX, Math.min(maxCurrentWidth, Math.floor(nextWidth)));
 }
 
-export const useWorkspacePanelStore = create<WorkspacePanelState>((set, get) => ({
+export const useWorkspacePanelStore = create<WorkspacePanelState>((set) => ({
   openPanels: [],
   activePanelKey: 'planning',
   isMapVisible: true,
