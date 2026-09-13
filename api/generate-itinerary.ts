@@ -36,61 +36,74 @@ Return EXACTLY a JSON object with this exact structure (no markdown, no backtick
 }
 Distribute activities reasonably across the given dates. Use realistic times (e.g., 09:00, 14:30) and durations.`;
 
-    const modelsToTry = [
-      'gemini-1.5-flash-latest',
-      'gemini-1.5-flash',
-      'gemini-pro',
-      'gemini-1.0-pro'
-    ];
-
-    let response;
+    let targetModel = '';
     let errText = '';
+    let availableModelNames: string[] = [];
 
-    for (const model of modelsToTry) {
-      const isLegacy = model.includes('1.0') || model === 'gemini-pro';
-      
-      const requestBody = JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: isLegacy ? `${systemPrompt}\n\nUser Request: ${prompt}` : prompt }]
-          }
-        ],
-        ...(isLegacy ? {} : {
-          systemInstruction: {
-            parts: [{ text: systemPrompt }]
-          },
-          generationConfig: {
-            responseMimeType: 'application/json'
-          }
-        })
-      });
+    // 1. Dynamically discover a supported model using the API key
+    try {
+      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+      if (listRes.ok) {
+        const listData = await listRes.json();
+        const models = listData.models || [];
+        
+        const generateModels = models.filter((m: any) => 
+          m.supportedGenerationMethods?.includes('generateContent')
+        );
+        
+        availableModelNames = generateModels.map((m: any) => m.name);
 
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      response = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: requestBody
-      });
-
-      if (response.ok) {
-        break; // Success!
-      } else {
-        errText = await response.text();
-        console.warn(`Model ${model} failed:`, errText);
-        // If it's a 400 about systemInstruction not supported in gemini-pro, we might need a further fallback, 
-        // but 404 is what we are catching primarily.
-        if (response.status !== 404 && response.status !== 400) {
-          break;
+        if (generateModels.length > 0) {
+          // Prefer flash models, otherwise just take the first one
+          const preferred = generateModels.find((m: any) => m.name.includes('gemini-1.5-flash')) 
+                         || generateModels.find((m: any) => m.name.includes('gemini-1.5'))
+                         || generateModels[0];
+          
+          // m.name is returned as "models/gemini-1.5-flash", we just want the part after models/
+          targetModel = preferred.name.split('/').pop() || '';
         }
       }
+    } catch (e) {
+      console.error('Failed to list models:', e);
     }
 
-    if (!response || !response.ok) {
-      console.error('Final Gemini API Error:', errText);
-      return new Response(JSON.stringify({ error: `Gemini API Error: ${errText}` }), { status: response?.status || 500 });
+    if (!targetModel) {
+      targetModel = 'gemini-1.5-flash'; // absolute fallback
+    }
+
+    const isLegacy = targetModel.includes('1.0') || targetModel === 'gemini-pro';
+    const requestBody = JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: isLegacy ? `${systemPrompt}\n\nUser Request: ${prompt}` : prompt }]
+        }
+      ],
+      ...(isLegacy ? {} : {
+        systemInstruction: {
+          parts: [{ text: systemPrompt }]
+        },
+        generationConfig: {
+          responseMimeType: 'application/json'
+        }
+      })
+    });
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
+    const response = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: requestBody
+    });
+
+    if (!response.ok) {
+      errText = await response.text();
+      console.error(`Model ${targetModel} failed:`, errText);
+      return new Response(JSON.stringify({ 
+        error: `Gemini API Error with model ${targetModel}: ${errText}. Available models for your key: ${availableModelNames.join(', ')}` 
+      }), { status: response.status });
     }
 
     const data = await response.json();
