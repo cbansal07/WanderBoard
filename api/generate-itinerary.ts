@@ -93,7 +93,7 @@ Distribute activities reasonably across the given dates. Use realistic times (e.
       // Only keep trying other models if this one was unavailable/not-found.
       // Any other error (bad request, quota, auth) is very unlikely to be
       // fixed by switching models, so bail out immediately with that error.
-      if (res.status !== 404) {
+      if (res.status !== 404 && res.status !== 503 && res.status !== 429) {
         return new Response(
           JSON.stringify({ error: `Gemini API Error with model ${model}: ${lastErrText}` }),
           { status: res.status }
