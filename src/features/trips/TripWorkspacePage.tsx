@@ -286,6 +286,7 @@ function WorkspaceShell({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [showMap, setShowMap] = useState(true);
   const {
     openPanels,
     activePanelKey,
@@ -669,6 +670,12 @@ function WorkspaceShell({
             </span>
           </div>
           <button
+            onClick={() => setShowMap(!showMap)}
+            className="wb-btn wb-btn-ghost wb-btn-sm"
+          >
+            {showMap ? 'Hide map' : 'Show map'}
+          </button>
+          <button
             onClick={handleCloseAllPanels}
             className="wb-btn wb-btn-ghost wb-btn-sm"
           >
@@ -684,6 +691,7 @@ function WorkspaceShell({
         <div
           className="relative overflow-hidden flex-1 min-w-0"
           style={{
+            display: showMap ? 'block' : 'none',
             background: 'radial-gradient(1200px 700px at 30% 30%, #DDEAF3, transparent 60%), radial-gradient(900px 500px at 70% 80%, #FAEFD9, transparent 60%), #EEE4CC',
           }}
         >
@@ -794,7 +802,7 @@ function WorkspaceShell({
         </div>
 
         {openPanels.length > 0 && (
-          <div className="h-full flex flex-shrink-0" style={{ maxWidth: '80vw' }}>
+          <div className="h-full flex flex-shrink-0" style={{ maxWidth: showMap ? '80vw' : '100%', width: showMap ? 'auto' : '100%' }}>
             <div className="h-full flex items-center px-2" style={{ background: 'var(--wb-paper-2)', borderLeft: '1px solid var(--wb-line)', borderRight: '1px solid var(--wb-line)' }}>
               <FeatureIconRail
                 openPanels={openPanels}
@@ -820,7 +828,8 @@ function WorkspaceShell({
                     className="h-full flex flex-col overflow-hidden"
                     onMouseDown={() => handleFocusPanel(panel.key)}
                     style={{
-                      width: panel.width,
+                      width: showMap ? panel.width : '100%',
+                      flex: showMap ? 'none' : '1',
                       minWidth: 280,
                       background: 'var(--wb-paper)',
                       borderRight: '1px solid var(--wb-line)',
