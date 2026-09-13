@@ -52,10 +52,13 @@ export async function fetchWeatherData(
     let dayData = json.forecast.forecastday.find((d: any) => d.date === targetDate);
     
     if (!dayData) {
-      // If the target date is outside the forecast window (e.g., \u003e 14 days in the future),
-      // we can't get an exact forecast. Fallback to returning the last available day's data
-      // or the first day's data as a rough placeholder, rather than failing completely.
-      dayData = json.forecast.forecastday[json.forecast.forecastday.length - 1];
+      // If the target date is outside the forecast window (e.g., > 14 days in the future or past),
+      // we can't get an exact forecast. Fallback to a deterministic day in the forecast 
+      // based on the target date, so every day doesn't show identical placeholder weather.
+      const dateObj = new Date(targetDate);
+      const dayIndex = (dateObj.getDate() + dateObj.getMonth()) % json.forecast.forecastday.length;
+      dayData = json.forecast.forecastday[dayIndex];
+      
       if (!dayData) {
         return err(`No weather data available for ${targetDate}`);
       }
