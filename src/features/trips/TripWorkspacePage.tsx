@@ -475,6 +475,16 @@ function WorkspaceShell({
     });
   }, [tripCities, activeTrip.selectedDestinationCity]);
 
+  // Fix Leaflet gray screen bug when container toggles display: none
+  useEffect(() => {
+    if (showMap && mapRef.current) {
+      const timer = setTimeout(() => {
+        mapRef.current?.invalidateSize();
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [showMap, mapRef]);
+
   useEffect(() => {
     if (!selectedCityName) {
       setSelectedCityCenter(null);
