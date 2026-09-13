@@ -36,43 +36,80 @@ Return EXACTLY a JSON object with this exact structure (no markdown, no backtick
 }
 Distribute activities reasonably across the given dates. Use realistic times (e.g., 09:00, 14:30) and durations.`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-    
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const modelsToTry = [
+      'gemini-1.5-flash-latest',
+      'gemini-1.5-flash',
+      'gemini-pro',
+      'gemini-1.0-pro'
+    ];
+
+    let response;
+    let errText = '';
+
+    for (const model of modelsToTry) {
+      const isLegacy = model.includes('1.0') || model === 'gemini-pro';
+      
+      const requestBody = JSON.stringify({
         contents: [
           {
             role: 'user',
-            parts: [{ text: prompt }]
+            parts: [{ text: isLegacy ? `${systemPrompt}\n\nUser Request: ${prompt}` : prompt }]
           }
         ],
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        generationConfig: {
-          responseMimeType: 'application/json'
-        }
-      })
-    });
+        ...(isLegacy ? {} : {
+          systemInstruction: {
+            parts: [{ text: systemPrompt }]
+          },
+          generationConfig: {
+            responseMimeType: 'application/json'
+          }
+        })
+      });
 
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('Gemini API Error:', err);
-      return new Response(JSON.stringify({ error: `Gemini API Error: ${err}` }), { status: response.status });
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      response = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: requestBody
+      });
+
+      if (response.ok) {
+        break; // Success!
+      } else {
+        errText = await response.text();
+        console.warn(`Model ${model} failed:`, errText);
+        // If it's a 400 about systemInstruction not supported in gemini-pro, we might need a further fallback, 
+        // but 404 is what we are catching primarily.
+        if (response.status !== 404 && response.status !== 400) {
+          break;
+        }
+      }
+    }
+
+    if (!response || !response.ok) {
+      console.error('Final Gemini API Error:', errText);
+      return new Response(JSON.stringify({ error: `Gemini API Error: ${errText}` }), { status: response?.status || 500 });
     }
 
     const data = await response.json();
-    const textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    let textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!textOutput) {
        return new Response(JSON.stringify({ error: 'Empty response from Gemini' }), { status: 500 });
     }
 
-    // Gemini guarantees JSON due to responseMimeType
-    const parsed = JSON.parse(textOutput);
+    // Sanitize in case older models wrapped it in markdown
+    textOutput = textOutput.replace(/^```json\s*/m, '').replace(/```\s*$/m, '').trim();
+
+    // Gemini guarantees JSON due to responseMimeType (or we sanitized it for legacy models)
+    let parsed;
+    try {
+      parsed = JSON.parse(textOutput);
+    } catch (e: any) {
+      console.error('Failed to parse JSON:', textOutput);
+      return new Response(JSON.stringify({ error: 'Gemini returned invalid JSON', details: textOutput }), { status: 500 });
+    }
 
     return new Response(JSON.stringify(parsed), {
       status: 200,
