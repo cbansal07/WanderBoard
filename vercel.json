@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/api/locationiq/search", "destination": "https://us1.locationiq.com/v1/search.php" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
