@@ -12,11 +12,13 @@ import { TripWeatherPage } from '@/features/trips/TripWeatherPage';
 import { ExpensesPage } from '@/features/expenses/ExpensesPage';
 import { TimelinePage } from '@/features/timeline/TimelinePage';
 import { PanelErrorBoundary } from '@/components/PanelErrorBoundary';
+import { NetworkStatus } from '@/components/NetworkStatus';
 import { ROUTES } from '@/config/routes';
 
 export default function App() {
   return (
     <AuthProvider>
+      <NetworkStatus />
       <BrowserRouter>
         <Routes>
           {/* Public routes */}

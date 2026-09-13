@@ -1,7 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, connectAuthEmulator } from 'firebase/auth';
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
-
+import { getFirestore, connectFirestoreEmulator, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 // ─── Validate env vars at startup ─────────────────────────────────────────────
 // Fail loudly in development if any key is missing.
 // In production these are set via Firebase Hosting environment config.
@@ -36,7 +35,11 @@ const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
-export const db   = getFirestore(app);
+
+// Use explicit IndexedDB persistence for offline-first support (e.g., Tokyo subway use case)
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+});
 
 // ─── Local emulator wiring ────────────────────────────────────────────────────
 // Run `firebase emulators:start` to use local emulators.
