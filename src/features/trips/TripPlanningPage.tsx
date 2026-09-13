@@ -8,6 +8,8 @@ import { useTripMap } from './TripMapContext';
 import { useWorkspacePanelStore } from './useWorkspacePanelStore';
 import { DayCard } from './components/DayCard';
 import { SlotRow, EmptySlotRow } from './components/SlotRow';
+import { GenerateItineraryModal } from '../ai/GenerateItineraryModal';
+import { useAuth } from '@/features/auth/AuthProvider';
 
 function getDatesInRange(startDate: string, endDate: string): string[] {
   if (!startDate || !endDate) return [];
@@ -89,9 +91,11 @@ function getEventDisplayLocation(
 }
 
 export function TripPlanningPage() {
+  const { user } = useAuth();
   const { activeTrip } = useTripStore();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [isAIModalOpen, setIsAIModalOpen] = useState(false);
   const [bucketItems, setBucketItems] = useState<BucketItemLoc[]>([]);
   const { setMapMarkers } = useTripMap();
   const openPanels = useWorkspacePanelStore((s) => s.openPanels);
@@ -201,6 +205,17 @@ export function TripPlanningPage() {
         </div>
       ) : (
         <>
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => setIsAIModalOpen(true)}
+              className="wb-btn w-full flex items-center justify-center gap-2"
+              style={{ background: 'var(--wb-ink)', color: '#fff', padding: '10px 16px', borderRadius: '12px' }}
+            >
+              <span className="text-lg">✨</span>
+              <span className="font-semibold text-sm">Auto-generate Itinerary</span>
+            </button>
+          </div>
           <div
             className="rounded-[16px] border p-4 mb-3.5"
             style={{ background: '#fff', borderColor: 'var(--wb-line)', boxShadow: 'var(--wb-shadow-sm)' }}
@@ -315,6 +330,20 @@ export function TripPlanningPage() {
             </div>
           </div>
         </>
+      )}
+
+      {isAIModalOpen && activeTrip && user && (
+        <GenerateItineraryModal
+          tripId={activeTrip.id}
+          destination={activeTrip.destination}
+          startDate={activeTrip.startDate!}
+          endDate={activeTrip.endDate!}
+          userId={user.uid}
+          onClose={() => setIsAIModalOpen(false)}
+          onComplete={() => {
+            // Optional: trigger any refresh or notification
+          }}
+        />
       )}
     </div>
   );
