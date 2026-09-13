@@ -814,7 +814,6 @@ function WorkspaceShell({
           </div>
         </div>
 
-        {openPanels.length > 0 && (
           <div className="h-full flex flex-shrink-0" style={{ maxWidth: showMap ? '80vw' : '100%', width: showMap ? 'auto' : '100%' }}>
             <div className="h-full flex items-center px-2" style={{ background: 'var(--wb-paper-2)', borderLeft: '1px solid var(--wb-line)', borderRight: '1px solid var(--wb-line)' }}>
               <FeatureIconRail
@@ -889,12 +888,10 @@ function WorkspaceShell({
                 </div>
               );
             })}
-          </div>
-        )}
-
+            </div>
+        </div>
       </div>
-    </div>
-  );
+    );
 }
 
 function FeatureIconRail({
