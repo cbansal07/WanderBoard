@@ -215,16 +215,22 @@ export function listenToBucketList(
 ): () => void {
   const normalizedTripId = tripId.trim();
   const baseQuery = bucketListCol(normalizedTripId);
-  const bucketQuery = sortMode === 'recent'
-    ? query(baseQuery, orderBy('createdAt', 'desc'))
-    : query(baseQuery, orderBy('score', 'desc'), orderBy('createdAt', 'desc'));
+  const bucketQuery = query(baseQuery, orderBy('createdAt', 'desc'));
 
   return onSnapshot(
     bucketQuery,
     (snapshot) => {
-      const items = snapshot.docs.map((docSnap) =>
+      let items = snapshot.docs.map((docSnap) =>
         toBucketListItem(normalizedTripId, docSnap.id, docSnap.data()),
       );
+      
+      if (sortMode === 'score') {
+        items = items.sort((a, b) => {
+          if (b.score !== a.score) return b.score - a.score;
+          return b.order - a.order;
+        });
+      }
+      
       onUpdate(items);
     },
     (error) => {

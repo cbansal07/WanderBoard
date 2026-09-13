@@ -304,7 +304,7 @@ function BucketListCard({
       className="overflow-hidden rounded-[16px] border bg-white"
       style={{ borderColor: 'var(--wb-line)', boxShadow: 'var(--wb-shadow-sm)' }}
     >
-      <div className="grid gap-4 p-4 md:grid-cols-[200px,1fr]">
+      <div className="flex flex-col gap-4 p-4">
         <img
           src={hasImageError ? FALLBACK_CARD_IMAGE : resolvedPhotoUrl}
           alt={item.name}

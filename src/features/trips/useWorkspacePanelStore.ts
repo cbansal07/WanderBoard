@@ -21,6 +21,8 @@ const MIN_MAP_WIDTH_RATIO = 0.2;
 interface WorkspacePanelState {
   openPanels: WorkspacePanel[];
   activePanelKey: WorkspacePanelKey;
+  isMapVisible: boolean;
+  setIsMapVisible: (visible: boolean) => void;
   resetForRoute: (key: WorkspacePanelKey) => void;
   setFromRoute: (key: WorkspacePanelKey) => void;
   togglePanel: (key: WorkspacePanelKey) => void;
@@ -46,9 +48,11 @@ function clampPanelWidth(
   return Math.max(MIN_PANEL_WIDTH_PX, Math.min(maxCurrentWidth, Math.floor(nextWidth)));
 }
 
-export const useWorkspacePanelStore = create<WorkspacePanelState>((set) => ({
-  openPanels: [{ key: 'planning', width: getDefaultPanelWidthForKey('planning') }],
+export const useWorkspacePanelStore = create<WorkspacePanelState>((set, get) => ({
+  openPanels: [],
   activePanelKey: 'planning',
+  isMapVisible: true,
+  setIsMapVisible: (visible) => set({ isMapVisible: visible }),
 
   resetForRoute: (key) => set((state) => {
     const existing = state.openPanels.find((panel) => panel.key === key);

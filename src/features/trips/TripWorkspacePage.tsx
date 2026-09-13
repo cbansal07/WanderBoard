@@ -286,10 +286,11 @@ function WorkspaceShell({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const [showMap, setShowMap] = useState(true);
   const {
     openPanels,
     activePanelKey,
+    isMapVisible: showMap,
+    setIsMapVisible: setShowMap,
     resetForRoute,
     setFromRoute,
     togglePanel,
@@ -300,6 +301,8 @@ function WorkspaceShell({
   } = useWorkspacePanelStore((s) => ({
     openPanels: s.openPanels,
     activePanelKey: s.activePanelKey,
+    isMapVisible: s.isMapVisible,
+    setIsMapVisible: s.setIsMapVisible,
     resetForRoute: s.resetForRoute,
     setFromRoute: s.setFromRoute,
     togglePanel: s.togglePanel,
