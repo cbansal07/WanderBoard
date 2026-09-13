@@ -9,7 +9,7 @@ export interface ResolvedPlace {
 }
 
 async function fetchLocationIQ(urlParams: Record<string, string>) {
-  const url = new URL(window.location.origin + '/api/locationiq/search');
+  const url = new URL('https://us1.locationiq.com/v1/search.php');
   url.searchParams.set('format', 'json');
   url.searchParams.set('key', 'pk.11913635f064e39f8f38b09476c56c33');
   
