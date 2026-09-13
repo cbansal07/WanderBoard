@@ -558,7 +558,7 @@ function WorkspaceShell({
     const startX = event.clientX;
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const delta = startX - moveEvent.clientX;
+      const delta = moveEvent.clientX - startX;
       resizePanel(panelKey, initialWidth + delta);
     };
 
@@ -824,25 +824,28 @@ function WorkspaceShell({
               />
             </div>
 
-            {openPanels.map((panel) => {
+            {openPanels.map((panel, index) => {
               const panelMeta = PANEL_CONFIG.find((entry) => entry.key === panel.key)!;
               const isActivePanel = activePanelKey === panel.key;
+              const isLast = index === openPanels.length - 1;
               return (
-                <div key={panel.key} className="h-full flex flex-shrink-0">
-                  <div
-                    role="separator"
-                    aria-orientation="vertical"
-                    onMouseDown={(event) => startPanelResize(event, panel.key, panel.width)}
-                    className="w-2 cursor-col-resize"
-                    style={{ background: 'var(--wb-paper-2)', borderLeft: '1px solid var(--wb-line)', borderRight: '1px solid var(--wb-line)' }}
-                  />
+                <div key={panel.key} className="h-full flex flex-shrink-0" style={{ flex: (!showMap && isLast) ? '1' : 'none', width: (!showMap && isLast) ? '100%' : 'auto' }}>
+                  {index > 0 && (
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      onMouseDown={(event) => startPanelResize(event, openPanels[index - 1].key, openPanels[index - 1].width)}
+                      className="w-2 cursor-col-resize shrink-0"
+                      style={{ background: 'var(--wb-paper-2)', borderLeft: '1px solid var(--wb-line)', borderRight: '1px solid var(--wb-line)' }}
+                    />
+                  )}
 
                   <div
                     className="h-full flex flex-col overflow-hidden"
                     onMouseDown={() => handleFocusPanel(panel.key)}
                     style={{
-                      width: showMap ? panel.width : '100%',
-                      flex: showMap ? 'none' : '1',
+                      width: (!showMap && isLast) ? '100%' : panel.width,
+                      flex: (!showMap && isLast) ? '1' : 'none',
                       minWidth: 280,
                       background: 'var(--wb-paper)',
                       borderRight: '1px solid var(--wb-line)',
