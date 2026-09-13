@@ -2,6 +2,17 @@ export const config = {
   runtime: 'edge',
 };
 
+// Ordered by preference. All of these are current, non-deprecated models
+// as of Sept 2026. "gemini-flash-latest" is an alias Google keeps pointed
+// at whatever their current fast model is, so it's a good first try even
+// if the pinned versions below eventually get deprecated too.
+const MODEL_CANDIDATES = [
+  'gemini-flash-latest',
+  'gemini-2.5-flash',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+];
+
 export default async function handler(req: Request) {
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method Not Allowed' }), { status: 405 });
@@ -36,86 +47,75 @@ Return EXACTLY a JSON object with this exact structure (no markdown, no backtick
 }
 Distribute activities reasonably across the given dates. Use realistic times (e.g., 09:00, 14:30) and durations.`;
 
-    let targetModel = '';
-    let errText = '';
-    let availableModelNames: string[] = [];
-
-    // 1. Dynamically discover a supported model using the API key
-    try {
-      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-      if (listRes.ok) {
-        const listData = await listRes.json();
-        const models = listData.models || [];
-        
-        const generateModels = models.filter((m: any) => 
-          m.supportedGenerationMethods?.includes('generateContent')
-        );
-        
-        availableModelNames = generateModels.map((m: any) => m.name);
-
-        if (generateModels.length > 0) {
-          // Prefer flash models, otherwise just take the first one
-          const preferred = generateModels.find((m: any) => m.name.includes('gemini-1.5-flash')) 
-                         || generateModels.find((m: any) => m.name.includes('gemini-1.5'))
-                         || generateModels[0];
-          
-          // m.name is returned as "models/gemini-1.5-flash", we just want the part after models/
-          targetModel = preferred.name.split('/').pop() || '';
-        }
-      }
-    } catch (e) {
-      console.error('Failed to list models:', e);
-    }
-
-    if (!targetModel) {
-      targetModel = 'gemini-1.5-flash'; // absolute fallback
-    }
-
-    const isLegacy = targetModel.includes('1.0') || targetModel === 'gemini-pro';
     const requestBody = JSON.stringify({
       contents: [
         {
           role: 'user',
-          parts: [{ text: isLegacy ? `${systemPrompt}\n\nUser Request: ${prompt}` : prompt }]
+          parts: [{ text: prompt }]
         }
       ],
-      ...(isLegacy ? {} : {
-        systemInstruction: {
-          parts: [{ text: systemPrompt }]
-        },
-        generationConfig: {
-          responseMimeType: 'application/json'
-        }
-      })
-    });
-
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
-    const response = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+      systemInstruction: {
+        parts: [{ text: systemPrompt }]
       },
-      body: requestBody
+      generationConfig: {
+        responseMimeType: 'application/json'
+      }
     });
 
-    if (!response.ok) {
-      errText = await response.text();
-      console.error(`Model ${targetModel} failed:`, errText);
-      return new Response(JSON.stringify({ 
-        error: `Gemini API Error with model ${targetModel}: ${errText}. Available models for your key: ${availableModelNames.join(', ')}` 
-      }), { status: response.status });
+    let response: Response | null = null;
+    let lastErrText = '';
+    let lastModelTried = '';
+
+    // Try each candidate model in order, falling through to the next one
+    // on a 404 (model not found / not supported) so a single deprecation
+    // doesn't take the whole endpoint down.
+    for (const model of MODEL_CANDIDATES) {
+      lastModelTried = model;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+      const res = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody
+      });
+
+      if (res.ok) {
+        response = res;
+        break;
+      }
+
+      lastErrText = await res.text();
+      console.error(`Model ${model} failed (${res.status}):`, lastErrText);
+
+      // Only keep trying other models if this one was unavailable/not-found.
+      // Any other error (bad request, quota, auth) is very unlikely to be
+      // fixed by switching models, so bail out immediately with that error.
+      if (res.status !== 404) {
+        return new Response(
+          JSON.stringify({ error: `Gemini API Error with model ${model}: ${lastErrText}` }),
+          { status: res.status }
+        );
+      }
+    }
+
+    if (!response) {
+      return new Response(
+        JSON.stringify({
+          error: `All candidate Gemini models failed. Last tried "${lastModelTried}": ${lastErrText}`
+        }),
+        { status: 502 }
+      );
     }
 
     const data = await response.json();
     let textOutput = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!textOutput) {
-       return new Response(JSON.stringify({ error: 'Empty response from Gemini' }), { status: 500 });
+      return new Response(JSON.stringify({ error: 'Empty response from Gemini' }), { status: 500 });
     }
 
-    // Sanitize in case older models wrapped it in markdown
+    // Sanitize in case a model wrapped it in markdown despite responseMimeType
     textOutput = textOutput.replace(/^```json\s*/m, '').replace(/```\s*$/m, '').trim();
 
-    // Gemini guarantees JSON due to responseMimeType (or we sanitized it for legacy models)
     let parsed;
     try {
       parsed = JSON.parse(textOutput);
