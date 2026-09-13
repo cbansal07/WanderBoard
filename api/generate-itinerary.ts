@@ -2,15 +2,18 @@ export const config = {
   runtime: 'edge',
 };
 
-// Ordered by preference. All of these are current, non-deprecated models
-// as of Sept 2026. "gemini-flash-latest" is an alias Google keeps pointed
-// at whatever their current fast model is, so it's a good first try even
-// if the pinned versions below eventually get deprecated too.
+// Ordered by preference. "gemini-flash-latest" is an alias Google keeps
+// pointed at their current recommended fast model, so it's the safest
+// first try — it should keep working even as pinned versions below get
+// deprecated out from under us. gemini-2.x models are excluded entirely:
+// Google has started blocking them for newer API keys/projects (404
+// "no longer available to new users") even while still listing them
+// in ListModels, so they're not a reliable fallback anymore.
 const MODEL_CANDIDATES = [
   'gemini-flash-latest',
-  'gemini-2.5-flash',
-  'gemini-3-flash-preview',
-  'gemini-2.5-pro',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-pro-latest',
 ];
 
 export default async function handler(req: Request) {
