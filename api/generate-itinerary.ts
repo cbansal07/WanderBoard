@@ -36,7 +36,7 @@ Return EXACTLY a JSON object with this exact structure (no markdown, no backtick
 }
 Distribute activities reasonably across the given dates. Use realistic times (e.g., 09:00, 14:30) and durations.`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
     
     const response = await fetch(geminiUrl, {
       method: 'POST',
@@ -51,7 +51,6 @@ Distribute activities reasonably across the given dates. Use realistic times (e.
           }
         ],
         systemInstruction: {
-          role: 'system',
           parts: [{ text: systemPrompt }]
         },
         generationConfig: {
@@ -62,7 +61,8 @@ Distribute activities reasonably across the given dates. Use realistic times (e.
 
     if (!response.ok) {
       const err = await response.text();
-      return new Response(JSON.stringify({ error: 'Gemini API Error', details: err }), { status: response.status });
+      console.error('Gemini API Error:', err);
+      return new Response(JSON.stringify({ error: `Gemini API Error: ${err}` }), { status: response.status });
     }
 
     const data = await response.json();
