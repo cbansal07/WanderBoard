@@ -98,8 +98,8 @@ export function MapView({
       zoomControl={false}
     >
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; Google Maps'
+        url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
       />
       <MapController
         center={effectiveCenter}
