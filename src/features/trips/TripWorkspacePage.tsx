@@ -698,7 +698,7 @@ function WorkspaceShell({
       </div>
 
       {/* ── Split pane ── */}
-      <div className="flex-1 min-h-0 flex">
+      <div className="flex-1 min-h-0 flex relative">
 
         {/* LEFT: Shared map canvas */}
         <div
@@ -782,16 +782,6 @@ function WorkspaceShell({
             )}
           </div>
 
-          {openPanels.length === 0 && (
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20">
-              <FeatureIconRail
-                openPanels={openPanels}
-                activePanelKey={activePanelKey}
-                onToggle={handleToggleFeaturePanel}
-              />
-            </div>
-          )}
-
           {/* Members panel */}
           <div
             className="absolute bottom-4 left-4 z-10 rounded-[14px] p-3 w-[220px]"
@@ -814,6 +804,17 @@ function WorkspaceShell({
           </div>
         </div>
 
+        {openPanels.length === 0 && (
+          <div className="absolute right-4 top-1/2 -translate-y-1/2 z-20">
+            <FeatureIconRail
+              openPanels={openPanels}
+              activePanelKey={activePanelKey}
+              onToggle={handleToggleFeaturePanel}
+            />
+          </div>
+        )}
+
+        {openPanels.length > 0 && (
           <div className="h-full flex flex-shrink-0" style={{ maxWidth: showMap ? '80vw' : '100%', width: showMap ? 'auto' : '100%' }}>
             <div className="h-full flex items-center px-2" style={{ background: 'var(--wb-paper-2)', borderLeft: '1px solid var(--wb-line)', borderRight: '1px solid var(--wb-line)' }}>
               <FeatureIconRail
@@ -889,6 +890,7 @@ function WorkspaceShell({
               );
             })}
             </div>
+          )}
         </div>
       </div>
     );
